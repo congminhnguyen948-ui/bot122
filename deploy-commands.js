@@ -18,11 +18,11 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
   try {
     console.log(`Đang đăng ký ${commands.length} lệnh...`);
 
-    // Đăng ký lệnh riêng cho 1 server (GUILD_ID) để cập nhật NGAY LẬP TỨC.
-    // Khi bot đã sẵn sàng dùng thực tế, có thể đổi sang Routes.applicationCommands(CLIENT_ID)
-    // để đăng ký toàn cục (global) cho mọi server (mất tới 1 giờ để cập nhật).
+    // Đăng ký lệnh TOÀN CỤC (global) — hoạt động ở MỌI server bot được mời vào,
+    // không cần cấu hình GUILD_ID hay chạy lại lệnh này mỗi khi thêm server mới.
+    // Lưu ý: có thể mất tới 1 giờ để Discord cập nhật lệnh trên toàn bộ server.
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands },
     );
 
