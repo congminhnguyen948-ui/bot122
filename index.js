@@ -6,11 +6,10 @@ const { incrementCount } = require('./commandTracker');
 const { addWarning } = require('./warningStore');
 const { recordOverLimit, jailUserInChannel, MUTE_DURATION_MS } = require('./jailSystem');
 
-// Cấu hình: các cách dùng lệnh "bj" cần theo dõi và ngưỡng số lần để tự động cảnh cáo
-const TRACKED_PREFIX_COMMANDS = ['!bj', '!blackjack']; // Các lệnh gõ tay cần theo dõi
-const TRACKED_SLASH_COMMAND_NAMES = ['bj', 'blackjack']; // Tên lệnh slash cần theo dõi (không phân biệt hoa/thường)
-const WARN_THRESHOLD = 5; // Số lần chơi miễn phí, từ lần thứ (WARN_THRESHOLD + 1) trở đi sẽ bị xóa lệnh + cảnh báo
-const JAIL_AFTER_WARNINGS = 2; // Số lần cảnh báo (trong cùng 1 kênh) trước khi bị bỏ tù
+const TRACKED_PREFIX_COMMANDS = ['!bj', '!blackjack'];
+const TRACKED_SLASH_COMMAND_NAMES = ['bj', 'blackjack'];
+const WARN_THRESHOLD = 5;
+const JAIL_AFTER_WARNINGS = 2;
 
 const client = new Client({
   intents: [
@@ -53,21 +52,12 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-/**
- * Tăng số lần dùng lệnh "bj" của 1 user.
- * - 5 lần đầu: cho chơi bình thường, không nhắc gì.
- * - Từ lần thứ 6 trở đi: xóa tin nhắn lệnh (nếu có thể), gửi cảnh báo "chơi quá tay".
- * - Khi đã bị cảnh báo đủ JAIL_AFTER_WARNINGS (2) lần TRONG CÙNG 1 KÊNH:
- *   bỏ tù (khóa quyền chat) người đó trong kênh đó, trong MUTE_DURATION_MS (100 phút).
- */
 async function trackBjUsage({ guild, userId, channel, message }) {
   const key = 'bj';
   const count = incrementCount(guild.id, userId, key);
 
-  // Vẫn trong hạn mức miễn phí, cho chơi bình thường
   if (count <= WARN_THRESHOLD) return;
 
-  // Từ lần thứ (WARN_THRESHOLD + 1) trở đi: xóa lệnh nếu có thể
   if (message && message.deletable) {
     try {
       await message.delete();
@@ -103,3 +93,49 @@ async function trackBjUsage({ guild, userId, channel, message }) {
   if (overLimitCount >= JAIL_AFTER_WARNINGS) {
     await jailUserInChannel(channel, userId, guild);
     await channel.send(
+      `🚨 <@${userId}> đã bị cảnh báo đủ ${JAIL_AFTER_WARNINGS} lần vì chơi bài quá tay.\n` +
+      `**BỊ PHẠT TÙ ${MUTE_DURATION_MS / 60000} PHÚT** trong kênh này! Hãy chơi ngoan để tránh bị tù nhé! 🔒`
+    );
+  }
+
+  try {
+    const member = await guild.members.fetch(userId);
+    await member.send(
+      `Bạn đã bị tự động cảnh cáo trong server **${guild.name}** vì dùng lệnh bj quá ${WARN_THRESHOLD} lần liên tiếp.\nTổng số cảnh cáo hiện tại: ${total}`
+    );
+  } catch {
+    // Người dùng tắt DM hoặc không tìm thấy, bỏ qua
+  }
+}
+
+client.on('messageCreate', async message => {
+  if (!message.guild) return;
+
+  if (!message.author.bot) {
+    const content = message.content.trim().toLowerCase();
+    const matchesPrefix = TRACKED_PREFIX_COMMANDS.some(cmd => content.startsWith(cmd));
+    if (matchesPrefix) {
+      await trackBjUsage({
+        guild: message.guild,
+        userId: message.author.id,
+        channel: message.channel,
+        message,
+      });
+    }
+    return;
+  }
+
+  const interactionInfo = message.interaction ?? message.interactionMetadata;
+  if (interactionInfo && interactionInfo.commandName) {
+    const cmdName = interactionInfo.commandName.toLowerCase();
+    const isTracked = TRACKED_SLASH_COMMAND_NAMES.some(name => cmdName === name || cmdName.startsWith(name + ' '));
+    if (isTracked) {
+      const invokerId = interactionInfo.user?.id;
+      if (invokerId) {
+        await trackBjUsage({ guild: message.guild, userId: invokerId, channel: message.channel });
+      }
+    }
+  }
+});
+
+client.login(process.env.DISCORD_TOKEN);
